@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -67,7 +68,9 @@ func main() {
 	client := &fasthttp.Client{
 		MaxConnsPerHost:               1024,
 		DisableHeaderNamesNormalizing: true,
+		MaxConnWaitTimeout:            40 * time.Second,
 		ReadTimeout:                   30 * time.Second,
+		NoDefaultUserAgentHeader:      true,
 		TLSConfig:                     &tls.Config{InsecureSkipVerify: true},
 	}
 	numWorkers := opts.Threads
@@ -86,6 +89,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "ERR: errors occurred during request of ", url, "Error:", err, "continueing")
 		}
 		result, _ = parseResults([]byte(resp.Body())) //don't care about errors
+		fasthttp.ReleaseResponse(resp)
 		if result != nil {
 			for i := range result.Groups {
 				work <- result.Groups[i]
@@ -97,7 +101,6 @@ func main() {
 			}
 		}
 		fasthttp.ReleaseRequest(req)
-		fasthttp.ReleaseResponse(resp)
 		close(work)
 	}()
 	// Create a waiting group
@@ -116,6 +119,7 @@ func doWork(work chan arcgisGroup, wg *sync.WaitGroup, wc *fasthttp.Client) {
 	resp := fasthttp.AcquireResponse()
 	req.Header.SetUserAgent(opts.UserAgent)
 	req.Header.Set(fasthttp.HeaderAccept, "application/json")
+	req.Header.Set(fasthttp.HeaderAcceptEncoding, "gzip, deflate")
 	req.Header.SetMethod(fasthttp.MethodGet)
 	resp.ImmediateHeaderFlush = true //only care about body
 
@@ -134,14 +138,21 @@ func doWork(work chan arcgisGroup, wg *sync.WaitGroup, wc *fasthttp.Client) {
 			continue
 		}
 		//get body, don't check for errs will come later
-		body := resp.Body()
+		var body []byte // encoding support
+		switch encoding := resp.Header.Peek("Content-Encoding"); {
+		case bytes.EqualFold(encoding, []byte("gzip")):
+			body, _ = resp.BodyGunzip()
+		case bytes.EqualFold(encoding, []byte("deflate")):
+			body, _ = resp.BodyInflate()
+		default:
+			body = resp.Body()
+		}
 		fasthttp.ReleaseResponse(resp)
 		// map json to struct
 		result := arcgisResult{}
 		err = json.Unmarshal(body, &result)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "ERR: Was not able to read the parse JSON for URL: ", userlistURL, "Error:", err)
-
 			continue
 		}
 		for _, user := range result.Users {
