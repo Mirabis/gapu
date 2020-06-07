@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	flags "github.com/jessevdk/go-flags"
+	"github.com/jessevdk/go-flags"
 	fasthttp "github.com/valyala/fasthttp"
 )
 
@@ -58,9 +58,8 @@ func parseResults(body []byte) (*arcgisResult, error) {
 }
 
 func main() {
-	_, err := flags.ParseArgs(&opts, os.Args)
+	_, err := flags.Parse(&opts)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 	var result *arcgisResult

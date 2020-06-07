@@ -1,5 +1,8 @@
+[![Release](https://img.shields.io/github/release/mirabis/gapu.svg)](https://github.com/mirabis/gapu/releases)
+[![Action Status](https://github.com/Mirabis/gapu/workflows/Release%20with%20goreleaser/badge.svg)](https://github.com/mirabis/gapu/actions)
+[![Go Report Card](https://goreportcard.com/badge/github.com/Mirabis/gapu)](https://goreportcard.com/report/github.com/Mirabis/gapu)
+
 # gapu 
-[![Go Report Card](https://goreportcard.com/report/github.com/Mirabis/gapu)]
 
 You feed **GAPU** (Get ArcGIS Portal Users) the base rest URL, it returns all users that can be retrieved from an anonymous principal.
 
@@ -10,6 +13,7 @@ This can be a useful way of finding usernames belonging to a company using ArcGI
 ```sh
 go get github.com/mirabis/gapu
 ```
+or download a prebuilt binary from the [Releases Page](https://github.com/mirabis/gapu/releases).
 
 ## Usage
 The most basic usage is to simply pass the rest portal URL to the -u parameter, for example:
