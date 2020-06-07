@@ -130,7 +130,7 @@ func doWork(work chan arcgisGroup, wg *sync.WaitGroup, wc *fasthttp.Client) {
 		err := wc.Do(req, resp)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "ERR: Was not able to query the userList for ", userlistURL, "Error:", err)
-			resp.ReleaseBody(0)
+			fasthttp.ReleaseResponse(resp)
 			continue
 		}
 		//get body, don't check for errs will come later
