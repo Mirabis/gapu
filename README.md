@@ -1,6 +1,5 @@
 # gapu 
-
-Small, fast, simple tool for retrieving all users and their information for public ArcGIS Portal groups.
+[![Go Report Card](https://goreportcard.com/report/github.com/Mirabis/gapu)]
 
 You feed **GAPU** (Get ArcGIS Portal Users) the base rest URL, it returns all users that can be retrieved from an anonymous principal.
 
