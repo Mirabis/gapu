@@ -1,15 +1,16 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
-	"net/http"
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	flags "github.com/jessevdk/go-flags"
+	fasthttp "github.com/valyala/fasthttp"
 )
 
 type arcgisResult struct {
@@ -61,45 +62,63 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	var result *arcgisResult
+	// Create one webclient
+	client := &fasthttp.Client{
+		MaxConnsPerHost:               1024,
+		DisableHeaderNamesNormalizing: true,
+		ReadTimeout:                   30 * time.Second,
+		TLSConfig:                     &tls.Config{InsecureSkipVerify: true},
+	}
 	numWorkers := opts.Threads
 	work := make(chan arcgisGroup)
 	go func() {
-		url := fmt.Sprintf("%s/community/groups?f=pjson&q=access:public&sortField=title&sortOrder=&num=100", opts.RestURI)
+		url := fmt.Sprintf("%s/community/groups?f=json&q=access:public&sortField=title&sortOrder=&num=100", opts.RestURI)
+		req := fasthttp.AcquireRequest()
+		resp := fasthttp.AcquireResponse()
+		req.Header.SetUserAgent(opts.UserAgent)
+		req.Header.Set(fasthttp.HeaderAccept, "application/json")
+		req.Header.SetMethod(fasthttp.MethodGet)
 	redo:
-		resp, err := http.Get(url)
+		req.SetRequestURI(url)
+		err := client.Do(req, resp)
 		if err != nil {
-			panic(err.Error()) //Couldn't get groups, stop here TODO: better err handling
+			fmt.Fprintln(os.Stderr, "ERR: errors occurred during request of ", url, "Error:", err, "continueing")
 		}
-		body, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			panic(err.Error()) //Couldn't read body			 TODO: better err handling
-		}
-		defer resp.Body.Close()
-		result, err := parseResults([]byte(body))
-
-		if result.Groups != nil {
+		result, _ = parseResults([]byte(resp.Body())) //don't care about errors
+		if result != nil {
 			for i := range result.Groups {
 				work <- result.Groups[i]
 			}
+			// json returns nextStart if there are more items, if we are at last it shows -1
+			if result.NextStart != -1 {
+				url = fmt.Sprintf("%s/community/groups?f=json&q=access:public&sortField=title&sortOrder=&num=100&start=%d", opts.RestURI, result.NextStart)
+				goto redo //re-do the steps with updated URL
+			}
 		}
-		// json returns nextStart if there are more items, if we are at last it shows -1
-		if result.NextStart != -1 {
-			url = fmt.Sprintf("%s/community/groups?f=json&q=access:public&sortField=title&sortOrder=&num=100&start=%d", opts.RestURI, result.NextStart)
-			goto redo //re-do the steps with updated URL
-		}
+		fasthttp.ReleaseRequest(req)
+		fasthttp.ReleaseResponse(resp)
 		close(work)
 	}()
 	// Create a waiting group
 	wg := &sync.WaitGroup{}
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
-		go doWork(work, wg) //Schedule the work
+		go doWork(work, wg, client) //Schedule the work
 	}
 	wg.Wait() //Wait for it all to complete
 }
 
-func doWork(work chan arcgisGroup, wg *sync.WaitGroup) {
+func doWork(work chan arcgisGroup, wg *sync.WaitGroup, wc *fasthttp.Client) {
 	defer wg.Done()
+	//It is unsafe using Request object from concurrently running goroutines, even for marshaling the request.
+	req := fasthttp.AcquireRequest()
+	resp := fasthttp.AcquireResponse()
+	req.Header.SetUserAgent(opts.UserAgent)
+	req.Header.Set(fasthttp.HeaderAccept, "application/json")
+	req.Header.SetMethod(fasthttp.MethodGet)
+	resp.ImmediateHeaderFlush = true //only care about body
+
 	for group := range work {
 		if opts.Verbose {
 			fmt.Sprintln("VERBOSE:", "Currently processing group:", group.ID, " - ", group.Title)
@@ -107,22 +126,22 @@ func doWork(work chan arcgisGroup, wg *sync.WaitGroup) {
 		//construct URL
 		userlistURL := fmt.Sprintf("%s/community/groups/%s/userList?f=json&num=100", opts.RestURI, group.ID)
 	redo:
-		resp, err := http.Get(userlistURL)
+		req.SetRequestURI(userlistURL)
+		err := wc.Do(req, resp)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "ERR: Was not able to query the userList for ", userlistURL, "Error:", err)
+			resp.ReleaseBody(0)
 			continue
 		}
-		body, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "ERR: Was not able to read the body for URL: ", userlistURL, "Error:", err)
-			continue
-		}
-		defer resp.Body.Close()
+		//get body, don't check for errs will come later
+		body := resp.Body()
+		fasthttp.ReleaseResponse(resp)
 		// map json to struct
 		result := arcgisResult{}
 		err = json.Unmarshal(body, &result)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "ERR: Was not able to read the parse JSON for URL: ", userlistURL, "Error:", err)
+
 			continue
 		}
 		for _, user := range result.Users {
@@ -136,4 +155,5 @@ func doWork(work chan arcgisGroup, wg *sync.WaitGroup) {
 			goto redo //re-do the steps with updated URL
 		}
 	}
+	fasthttp.ReleaseRequest(req)
 }

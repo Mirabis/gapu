@@ -1,7 +1,7 @@
 # VS Code
 testinput.txt
 .vscode/launch.json
-gomu.code-workspace
+*.code-workspace
 # Binaries for programs and plugins
 *.exe
 *.exe~
