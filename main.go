@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -138,10 +137,11 @@ func doWork(work chan arcgisGroup, wg *sync.WaitGroup, wc *fasthttp.Client) {
 		}
 		//get body, don't check for errs will come later
 		var body []byte // encoding support
-		switch encoding := resp.Header.Peek("Content-Encoding"); {
-		case bytes.EqualFold(encoding, []byte("gzip")):
+		encoding := resp.Header.Peek("Content-Encoding")
+		switch string(encoding) {
+		case "gzip":
 			body, _ = resp.BodyGunzip()
-		case bytes.EqualFold(encoding, []byte("deflate")):
+		case "deflate":
 			body, _ = resp.BodyInflate()
 		default:
 			body = resp.Body()
